@@ -64,31 +64,38 @@ processor = Wav2Vec2Processor.from_pretrained("facebook/wav2vec2-base-960h")
 # We'll define a function that maps raw streaming samples to:
 #   - input_values (model input)
 #   - labels (tokenized text)
+import torchaudio
+
 def prepare_example(example):
     # Example has fields: {"audio": {...}, "sentence": "...", ...}
-    # 1) Convert raw audio -> array
-    audio_array = example["audio"]["array"]       # the waveform
-    sampling_rate = example["audio"]["sampling_rate"]
+    # 1) Extract waveform & sampling rate
+    audio_array = example["audio"]["array"]
+    original_sampling_rate = example["audio"]["sampling_rate"]
 
-    # 2) Convert waveform to model input
+    # 2) If needed, resample to 16kHz
+    target_sampling_rate = 16000
+    if original_sampling_rate != target_sampling_rate:
+        resampler = torchaudio.transforms.Resample(orig_freq=original_sampling_rate, new_freq=target_sampling_rate)
+        audio_array = resampler(torch.tensor(audio_array, dtype=torch.float32)).numpy()
+
+    # 3) Convert waveform to model input
     input_values = processor(
         audio_array, 
-        sampling_rate=sampling_rate
+        sampling_rate=target_sampling_rate  # Ensure it's 16kHz now
     ).input_values[0]
 
-    # 3) Convert text -> integer labels
-    #   If there's no "sentence" field, you'd need to rename it to match your dataset
+    # 4) Convert text to tokenized labels
     input_ids = processor.tokenizer(
         example["sentence"], 
         truncation=True, 
         max_length=128
     ).input_ids
 
-    # Return new fields
     return {
         "input_values": input_values,
         "labels": input_ids
     }
+
 
 ###############################################################################
 # 4. MAP STREAMING DATA → LIST (so the Trainer can read it)
