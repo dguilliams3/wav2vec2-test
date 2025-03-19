@@ -5,9 +5,43 @@ from transformers import (
     Wav2Vec2Processor,
     Wav2Vec2ForCTC,
     TrainingArguments,
-    Trainer,
-    DataCollatorCTCWithPadding,
+    Trainer
 )
+
+from dataclasses import dataclass
+from typing import Any, Dict, List, Union
+
+@dataclass
+class DataCollatorCTCWithPadding:
+    processor: Wav2Vec2Processor
+    padding: Union[bool, str] = True
+
+    def __call__(self, features: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
+        # split inputs and labels since they have to be of different lengths and need
+        # different padding methods
+        input_features = [{"input_values": feature["input_values"]} for feature in features]
+        label_features = [{"input_ids": feature["labels"]} for feature in features]
+
+        batch = self.processor.pad(
+            input_features,
+            padding=self.padding,
+            return_tensors="pt",
+        )
+
+        with self.processor.as_target_processor():
+            labels_batch = self.processor.pad(
+                label_features,
+                padding=self.padding,
+                return_tensors="pt",
+            )
+
+        # Replace padding with -100 to ignore loss correctly
+        labels = labels_batch["input_ids"].masked_fill(labels_batch.attention_mask.ne(1), -100)
+
+        batch["labels"] = labels
+
+        return batch
+
 
 ###############################################################################
 # 1. SETUP & CONFIG
@@ -64,38 +98,31 @@ processor = Wav2Vec2Processor.from_pretrained("facebook/wav2vec2-base-960h")
 # We'll define a function that maps raw streaming samples to:
 #   - input_values (model input)
 #   - labels (tokenized text)
-import torchaudio
-
 def prepare_example(example):
     # Example has fields: {"audio": {...}, "sentence": "...", ...}
-    # 1) Extract waveform & sampling rate
-    audio_array = example["audio"]["array"]
-    original_sampling_rate = example["audio"]["sampling_rate"]
+    # 1) Convert raw audio -> array
+    audio_array = example["audio"]["array"]       # the waveform
+    sampling_rate = example["audio"]["sampling_rate"]
 
-    # 2) If needed, resample to 16kHz
-    target_sampling_rate = 16000
-    if original_sampling_rate != target_sampling_rate:
-        resampler = torchaudio.transforms.Resample(orig_freq=original_sampling_rate, new_freq=target_sampling_rate)
-        audio_array = resampler(torch.tensor(audio_array, dtype=torch.float32)).numpy()
-
-    # 3) Convert waveform to model input
+    # 2) Convert waveform to model input
     input_values = processor(
         audio_array, 
-        sampling_rate=target_sampling_rate  # Ensure it's 16kHz now
+        sampling_rate=sampling_rate
     ).input_values[0]
 
-    # 4) Convert text to tokenized labels
+    # 3) Convert text -> integer labels
+    #   If there's no "sentence" field, you'd need to rename it to match your dataset
     input_ids = processor.tokenizer(
         example["sentence"], 
         truncation=True, 
         max_length=128
     ).input_ids
 
+    # Return new fields
     return {
         "input_values": input_values,
         "labels": input_ids
     }
-
 
 ###############################################################################
 # 4. MAP STREAMING DATA → LIST (so the Trainer can read it)
