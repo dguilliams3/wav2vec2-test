@@ -1,2 +1,3 @@
 venv/*
 datasets/*
+wav2vec2-finetuned/*
