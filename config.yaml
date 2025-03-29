@@ -1,0 +1,30 @@
+# config.yaml
+
+# Model and processor parameters
+model_name: "facebook/wav2vec2-base-960h"
+
+# Optionally resume training from a checkpoint (set to directory if resuming, or leave empty)
+resume_checkpoint: "models/wav2vec2-finetuned/checkpoint-1000"
+
+# Dataset parameters
+dataset_name: "mozilla-foundation/common_voice_11_0"
+dataset_language: "en"
+train_split: "train"
+validation_split: "validation"
+train_examples: 1000
+validation_examples: 100
+
+# Audio processing parameters
+target_sampling_rate: 16000
+max_token_length: 128
+
+# Output and logging directories
+output_dir: "models/wav2vec2-finetuned"
+logging_dir: "logs"
+
+# Training hyperparameters
+per_device_train_batch_size: 2
+num_train_epochs: 2
+learning_rate: 3e-5
+warmup_steps: 500
+logging_steps: 10
